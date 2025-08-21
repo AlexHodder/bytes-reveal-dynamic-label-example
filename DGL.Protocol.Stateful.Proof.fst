@@ -19,7 +19,9 @@ let state_predicate_protocol: local_state_predicate protocol_state = {
     match st with
     | ClientSendRequest {server; cmeta_data} -> (
       let client = prin in
-      comm_meta_data_knowable tr client cmeta_data
+      comm_meta_data_knowable tr client cmeta_data /\
+      is_knowable_by (principal_label server) tr cmeta_data.key /\
+      server = cmeta_data.server
     )
     | ServerReceiveRequest {client; token} -> (
       let server = prin in
@@ -36,18 +38,7 @@ let state_predicate_protocol: local_state_predicate protocol_state = {
       is_knowable_by (join (principal_label client) (principal_label server)) tr code
     )
   );
-  pred_later = (fun tr1 tr2 prin sess_id st -> (
-    match st with
-    | ClientSendRequest {server; cmeta_data} -> (
-      ()
-    )
-    | ServerReceiveRequest {client; token} -> (
-      ()
-    )
-    | ClientReceiveResponse {server; cmeta_data; code} -> (
-      ()
-    )
-  ));
+  pred_later = (fun tr1 tr2 prin sess_id st -> ());
   pred_knowable = (fun tr prin sess_id st -> ());
 }
 #pop-options
@@ -77,10 +68,15 @@ let comm_layer_event_preds = {
       (exists tr'.
         tr' <$ tr /\
         is_secret (reveal_general_label tr' (Rand?.time code)) tr code
-      )
+      ) /\
+      is_knowable_by (join (principal_label client) (principal_label server)) tr code
     )
   );
-  send_request_later = (fun tr1 tr2 client server payload key_label -> ())
+  send_request_later = (fun tr1 tr2 client server payload key_label -> ());
+  send_response = (fun tr server request response ->
+    is_knowable_by (principal_label server) tr (serialize message response)
+  );
+  send_response_later = (fun tr1 tr2 server request response -> ());
 }
 #pop-options
 
@@ -164,6 +160,7 @@ let client_send_request_proof tr comm_keys_ids client server =
   | Some (msg, req_metadata), tr_out ->
     let (sid , tr_out) = new_session_id client tr_out in
     let st : protocol_state = ClientSendRequest { server; cmeta_data=req_metadata } in
+    reveal_opaque (`%send_request) (send_request #message);
     set_state_invariant state_predicate_protocol client sid st tr_out
   | _ -> ()
 #pop-options
@@ -197,103 +194,89 @@ let server_receive_request_send_response_proof tr comm_keys_ids server msg_id =
 
       let e = CommServerReceiveRequest server (serialize message msg) comm_metadata.key in
 
-      // assert(event_triggered tr3 server e);
-      // assert(exists tr_pre. tr_pre <$ tr3 ==> is_knowable_by (get_label tr_pre comm_metadata.key) tr_pre (serialize message msg));
-
-      // assert(exists tr_pre. tr_pre <$ tr3 ==> is_knowable_by (principal_label server) tr_pre comm_metadata.key);
-      // assert(is_knowable_by (principal_label server) tr3 comm_metadata.key);
-
-
       let Msg1 req = msg in
 
       let sid, tr_out = new_session_id server tr3 in
-      let tr_out_witness, tr_out' = get_trace tr_out in
-      // assert(trace_invariant tr_out);
-      let i, tr_out = get_time tr_out in
+      // let tr_out_witness, tr_out' = get_trace tr_out in
+      let i, tr_out_witness = get_time tr_out in
 
 
       reveal_opaque (`%mk_rand) (mk_rand);
       let user_code, tr_out = mk_rand NoUsage (reveal_general_label tr_out_witness i) 32 tr_out in
-      // assert(trace_invariant tr_out);
 
-      mk_rand_rand_gen_at_end NoUsage (reveal_general_label tr_out_witness i) 32 tr_out_witness;
-
-      // assert(get_label tr_out comm_metadata.key `can_flow tr_out` principal_label server);
-
-      // assert(rand_generated_at tr_out i user_code);
-      // admit();
-      // assert(default_reveal_event_predicate #crypto_invariants_protocol tr_out server {new_label=comm_metadata.key; point=i;});
-
-      trigger_event_trace_invariant reveal_event_pred server {new_label=comm_metadata.key; point=i;} tr_out;
-      trigger_event_event_triggered server {new_label=comm_metadata.key; point=i;} tr_out;
       reveal_opaque (`%trigger_reveal_general_event) (trigger_reveal_general_event);
       reveal_opaque (`%reveal_general_event_triggered_at) (reveal_general_event_triggered_at);
 
       let _, tr_out = trigger_reveal_general_event server comm_metadata.key i tr_out in
-      // assert(event_triggered tr_out server {new_label=comm_metadata.key; point=i});
-      // assert(reveal_general_event_triggered tr_out server comm_metadata.key i);
 
-      // admit();
-
-      // assert(reveal_general_event_triggered tr_out server comm_metadata.key i);
       reveal_general_label_can_flow_to_general_label tr_out tr_out_witness server comm_metadata.key i;
 
-      // assert(reveal_general_label tr_out_witness i `can_flow tr_out` (get_label tr_out comm_metadata.key));
-
-
-      // assert(is_knowable_by (principal_label server) tr_out comm_metadata.key);
-      // assert(get_label tr_out comm_metadata.key `can_flow tr_out` principal_label server);
-
-      // assert(is_secret (reveal_general_label tr_out_witness i) tr_out user_code);
-
-
-
-      // assert(exists tr'.
-      //   tr' <$ tr_out /\
-      //   is_secret (reveal_general_label tr' (Rand?.time user_code)) tr_out user_code
-      // );
-      // assert(is_knowable_by (get_label tr_out comm_metadata.key) tr_out user_code);
-      // assert(is_knowable_by (principal_label server) tr_out user_code);
-
       let st : protocol_state = ServerReceiveRequest {client=req.client; token=user_code} in
-
-      // assert(state_predicate_protocol.pred tr_out server sid st);
-
       set_state_invariant state_predicate_protocol server sid st tr_out;
       let (), tr_out = set_state server sid st tr_out in
-      // assert(trace_invariant tr_out);
 
       let response : message = Msg2 {server; code=user_code} in
 
       assert(get_response_label tr_out comm_metadata == get_label tr_out comm_metadata.key);
-      assert(is_knowable_by (get_response_label tr_out comm_metadata) tr_out user_code);
 
-      let pre' = is_knowable_by (get_response_label tr_out comm_metadata) tr_out in
+      let is_knowable_pre = is_knowable_by (get_response_label tr_out comm_metadata) tr_out in
+      assert(is_knowable_pre user_code);
 
-
-      // assume(is_well_formed_prefix ps_bytes pre' user_code);
-      // assume(is_well_formed_prefix ps_principal pre' server);
-      // admit();
-
-      // ps_message2_is_well_formed pre' {server; code=user_code};
-      // assert(is_well_formed_prefix ps_message2 pre' {server; code=user_code});
-
-      // ps_message_is_well_formed pre' response;
-      // assert(is_well_formed_prefix ps_message pre' response);
-
-      // assume(is_knowable_by (get_response_label tr_out comm_metadata) tr_out (serialize _ response));
-
-      assume(is_well_formed message pre' response);
+      assume(is_well_formed message is_knowable_pre response);
 
       send_response_proof tr_out comm_layer_event_preds server comm_metadata response;
 
-
       match send_response server comm_metadata response tr_out with
       | Some msg_id, tr_out_final ->
-        assert(trace_invariant tr_out_final)
+        assert(trace_invariant tr_out_final);
+        ()
       | _, _ -> ()
     )
     | _ -> ()
   )
   | _ -> ()
+#pop-options
+
+#push-options "--z3rlimit 40 --fuel 2 --ifuel 2"
+val client_receive_response_proof :
+  tr:trace ->
+  client:principal -> sid:state_id -> msg_id:timestamp ->
+  Lemma
+  (requires
+    trace_invariant tr
+  )
+  (ensures (
+    let (_, tr_out) = client_receive_response client sid msg_id tr in
+    trace_invariant tr_out
+  ))
+let client_receive_response_proof tr client sid msg_id =
+  match get_state #protocol_state client sid tr with
+  | Some cstate, tr2 -> (
+    match guard_tr (ClientSendRequest? cstate) tr2 with
+    | Some _, tr2 -> (
+      let ClientSendRequest {server; cmeta_data} = cstate in
+      assert(has_local_state_predicate state_predicate_protocol); //required to trigger some SMTPats in this proof.
+      assert(is_knowable_by (principal_label server) tr2 cmeta_data.key);
+
+      receive_response_proof tr2 comm_layer_event_preds client cmeta_data msg_id;
+      match receive_response #message client cmeta_data msg_id tr2 with
+      | Some (msg, cmeta_data'), tr3 -> (
+        match guard_tr (Msg2? msg) tr3 with
+        | Some _, tr3 -> (
+          let Msg2 res = msg in
+          let st = ClientReceiveResponse {server; cmeta_data; code=res.code} in
+
+          parse_wf_lemma message (is_knowable_by (get_label tr3 cmeta_data.key) tr3) (serialize message msg);
+
+          set_state_invariant state_predicate_protocol client sid st tr3;
+          let _, tr4 = set_state client sid st tr3 in
+          assert(trace_invariant tr4)
+        )
+        | _, _ -> ()
+      )
+      | _, _ -> ()
+    )
+    | _, _ -> ()
+  )
+  | _, _ -> ()
 #pop-options
