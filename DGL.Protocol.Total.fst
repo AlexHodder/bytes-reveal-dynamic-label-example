@@ -30,15 +30,3 @@ type message =
 
 instance parseable_serializeable_bytes_message : parseable_serializeable bytes message =
   mk_parseable_serializeable ps_message
-
-(*** Message 1***)
-
-/////  User requests some code from a server
-// val compute_message1 : principal -> principal -> bytes
-// let compute_message1 client server =
-//   let msg = Msg1 {server} in
-//   serialize message msg
-
-// val decode_message1 : principal -> bytes -> option message1
-// let decode_message1 server msg1_msg =
-//   let?

@@ -13,7 +13,7 @@ open DY.Lib.Label.DynamicGeneralLabelEvent
 
 #set-options "--fuel 0 --ifuel 0 --z3cliopt 'smt.qi.eager_threshold=100'"
 
-#push-options "--ifuel 3 --fuel 3 --z3rlimit 20"
+#push-options "--ifuel 3 --z3rlimit 20"
 let state_predicate_protocol: local_state_predicate protocol_state = {
   pred = (fun tr prin sess_id st ->
     match st with
@@ -36,6 +36,7 @@ let state_predicate_protocol: local_state_predicate protocol_state = {
       let client = prin in
       comm_meta_data_knowable tr client cmeta_data /\
       is_knowable_by (join (principal_label client) (principal_label server)) tr code
+      // /\ // exists sid. state_was_set tr server sid (ServerReceiveRequest {client; token=code}) // if we want a tighter security property this might be more interesting to prove
     )
   );
   pred_later = (fun tr1 tr2 prin sess_id st -> ());
@@ -69,7 +70,8 @@ let comm_layer_event_preds = {
         tr' <$ tr /\
         is_secret (reveal_general_label tr' (Rand?.time code)) tr code
       ) /\
-      is_knowable_by (join (principal_label client) (principal_label server)) tr code
+      is_knowable_by (join (principal_label client) (principal_label server)) tr code /\
+      exists sid. state_was_set tr server sid (ServerReceiveRequest {client; token=code})
     )
   );
   send_request_later = (fun tr1 tr2 client server payload key_label -> ());
@@ -165,13 +167,14 @@ let client_send_request_proof tr comm_keys_ids client server =
   | _ -> ()
 #pop-options
 
-// %splice [ps_bytes] (gen_parser (`bytes))
-// %splice [ps_bytes_is_well_formed] (gen_is_well_formed_lemma (`bytes))
+val ps_bytes_is_well_formed:
+  #bytes:Type0 -> {|bytes_like bytes|} ->
+  pre:bytes_compatible_pre bytes -> x:bytes ->
+  Lemma (is_well_formed_prefix ps_bytes pre x <==> pre x)
+  [SMTPat (is_well_formed_prefix ps_bytes pre x)]
+let ps_bytes_is_well_formed #bytes #bl pre x = ()
 
-instance parseable_serializeable_bytes_bytes : parseable_serializeable bytes bytes =
-  mk_parseable_serializeable ps_bytes
-
-#push-options "--z3rlimit 40 --fuel 2 --ifuel 2"
+#push-options "--z3rlimit 20"
 val server_receive_request_send_response_proof :
   tr:trace ->
   comm_keys_ids:communication_keys_sess_ids ->
@@ -217,19 +220,22 @@ let server_receive_request_send_response_proof tr comm_keys_ids server msg_id =
 
       let response : message = Msg2 {server; code=user_code} in
 
-      assert(get_response_label tr_out comm_metadata == get_label tr_out comm_metadata.key);
 
       let is_knowable_pre = is_knowable_by (get_response_label tr_out comm_metadata) tr_out in
-      assert(is_knowable_pre user_code);
 
-      assume(is_well_formed message is_knowable_pre response);
+      // key assertion to show well-formedness of the bytes term.
+      assert(is_knowable_pre user_code ==> is_well_formed_prefix ps_bytes is_knowable_pre user_code);
 
+      assert(is_well_formed_prefix ps_bytes is_knowable_pre user_code);
+
+      ps_message2_is_well_formed is_knowable_pre {server; code=user_code};
+      ps_message_is_well_formed is_knowable_pre response;
+
+      assert(is_well_formed message is_knowable_pre response);
       send_response_proof tr_out comm_layer_event_preds server comm_metadata response;
 
       match send_response server comm_metadata response tr_out with
-      | Some msg_id, tr_out_final ->
-        assert(trace_invariant tr_out_final);
-        ()
+      | Some msg_id, tr_out_final -> ()
       | _, _ -> ()
     )
     | _ -> ()
@@ -237,7 +243,7 @@ let server_receive_request_send_response_proof tr comm_keys_ids server msg_id =
   | _ -> ()
 #pop-options
 
-#push-options "--z3rlimit 40 --fuel 2 --ifuel 2"
+#push-options "--z3rlimit 20"
 val client_receive_response_proof :
   tr:trace ->
   client:principal -> sid:state_id -> msg_id:timestamp ->
@@ -266,11 +272,7 @@ let client_receive_response_proof tr client sid msg_id =
           let Msg2 res = msg in
           let st = ClientReceiveResponse {server; cmeta_data; code=res.code} in
 
-          parse_wf_lemma message (is_knowable_by (get_label tr3 cmeta_data.key) tr3) (serialize message msg);
-
-          set_state_invariant state_predicate_protocol client sid st tr3;
-          let _, tr4 = set_state client sid st tr3 in
-          assert(trace_invariant tr4)
+          parse_wf_lemma message (is_knowable_by (get_label tr3 cmeta_data.key) tr3) (serialize message msg)
         )
         | _, _ -> ()
       )
