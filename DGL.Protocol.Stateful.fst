@@ -4,8 +4,8 @@ open Comparse
 open DY.Core
 open DY.Lib
 
-open DY.Lib.Label.DynamicGeneralLabel
-open DY.Lib.Label.DynamicGeneralLabelEvent
+open DY.Lib.Label.DynamicBytesLabel
+open DY.Lib.Label.DynamicBytesLabelEvent
 
 open DGL.Protocol.Total
 
@@ -84,10 +84,10 @@ let server_receive_request_send_response #cu comm_keys_ids server msg_id =
   let* tr = get_trace in
   let* i = get_time in
 
-  let* user_code = mk_rand NoUsage (reveal_general_label tr i) 32 in
+  let* user_code = mk_rand NoUsage (reveal_to_bytes_label tr i) 32 in
 
   // Reveal to shared key
-  trigger_reveal_general_event server req_meta_data.key i;*
+  trigger_reveal_to_bytes_label_event server req_meta_data.key i;*
 
   set_state server sid (ServerReceiveRequest ({ client=req.client; token=user_code } <: server_state ) <: protocol_state);*
   let*? msg_id = send_response server req_meta_data (Msg2 {server; code=user_code}) in

@@ -8,8 +8,8 @@ open DGL.Protocol.Total
 open DGL.Protocol.Stateful
 open DGL.Protocol.Total.Proof
 
-open DY.Lib.Label.DynamicGeneralLabel
-open DY.Lib.Label.DynamicGeneralLabelEvent
+open DY.Lib.Label.DynamicBytesLabel
+open DY.Lib.Label.DynamicBytesLabelEvent
 
 #set-options "--fuel 0 --ifuel 0 --z3cliopt 'smt.qi.eager_threshold=100'"
 
@@ -28,7 +28,7 @@ let state_predicate_protocol: local_state_predicate protocol_state = {
       Rand? token /\
       (exists tr'.
         tr' <$ tr /\
-        is_secret (reveal_general_label tr' (Rand?.time token)) tr token
+        is_secret (reveal_to_bytes_label tr' (Rand?.time token)) tr token
       ) /\
       is_knowable_by (principal_label server) tr token
     )
@@ -68,7 +68,7 @@ let comm_layer_event_preds = {
       Rand? code /\
       (exists tr'.
         tr' <$ tr /\
-        is_secret (reveal_general_label tr' (Rand?.time code)) tr code
+        is_secret (reveal_to_bytes_label tr' (Rand?.time code)) tr code
       ) /\
       is_knowable_by (join (principal_label client) (principal_label server)) tr code /\
       exists sid. state_was_set tr server sid (ServerReceiveRequest {client; token=code})
@@ -82,7 +82,7 @@ let comm_layer_event_preds = {
 }
 #pop-options
 
-let reveal_event_pred : reveal_general_event_predicate =
+let reveal_event_pred : reveal_to_bytes_label_event_predicate =
   default_reveal_event_predicate #crypto_invariants_protocol
 
 let all_events =
@@ -205,14 +205,14 @@ let server_receive_request_send_response_proof tr comm_keys_ids server msg_id =
 
 
       reveal_opaque (`%mk_rand) (mk_rand);
-      let user_code, tr_out = mk_rand NoUsage (reveal_general_label tr_out_witness i) 32 tr_out in
+      let user_code, tr_out = mk_rand NoUsage (reveal_to_bytes_label tr_out_witness i) 32 tr_out in
 
-      reveal_opaque (`%trigger_reveal_general_event) (trigger_reveal_general_event);
-      reveal_opaque (`%reveal_general_event_triggered_at) (reveal_general_event_triggered_at);
+      reveal_opaque (`%trigger_reveal_to_bytes_label_event) (trigger_reveal_to_bytes_label_event);
+      reveal_opaque (`%reveal_to_bytes_label_event_triggered_at) (reveal_to_bytes_label_event_triggered_at);
+      let _, tr_out = trigger_reveal_to_bytes_label_event server comm_metadata.key i tr_out in
 
-      let _, tr_out = trigger_reveal_general_event server comm_metadata.key i tr_out in
+      reveal_to_bytes_label_can_flow_to_bytes_label tr_out tr_out_witness server comm_metadata.key i;
 
-      reveal_general_label_can_flow_to_general_label tr_out tr_out_witness server comm_metadata.key i;
 
       let st : protocol_state = ServerReceiveRequest {client=req.client; token=user_code} in
       set_state_invariant state_predicate_protocol server sid st tr_out;
